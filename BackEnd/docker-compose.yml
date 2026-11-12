@@ -1,0 +1,154 @@
+version: '3.8'
+
+networks:
+  delivery-net:
+    driver: bridge
+
+volumes:
+  postgres-delivery-data:
+  pgadmin-data:
+  redis-data:
+  kafka-delivery-data:
+
+services:
+  postgres-delivery:
+    image: postgres:17
+    container_name: postgres-delivery
+    environment:
+      POSTGRES_DB: customer_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 20071950
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-delivery-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    networks: [ delivery-net ]
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d customer_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: "kafka-delivery"
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # --- Listeners ---
+      # PLAINTEXT: usado pelos microsserviços dentro da rede docker (delivery-net)
+      # PLAINTEXT_HOST: usado por quem acessa o Kafka de fora do docker (host machine)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092,CONTROLLER://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # --- Ajustes para cluster de 1 nó (dev/homolog) ---
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka-delivery-data:/var/lib/kafka/data
+    networks: [ delivery-net ]
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: "kafdrop"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka:29092"
+      JVM_OPTS: "-Xms32M -Xmx64M"
+      SERVER_SERVLET_CONTEXTPATH: "/"
+    ports:
+      - "9000:9000"
+    networks: [ delivery-net ]
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  customer-ms:
+    image: boinha/customer-ms:latest
+    pull_policy: never
+    container_name: customer-ms
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-delivery:5432/customer_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 20071950
+
+      SELLER_SERVICE_HOST: seller-ms
+      SELLER_SERVICE_PORT: 8082
+
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 29092
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8081:8081"
+    networks: [ delivery-net ]
+    depends_on:
+      postgres-delivery:
+        condition: service_healthy
+      seller-ms:
+        condition: service_started
+
+  pgadmin:
+    image: dpage/pgadmin4:9.3
+    container_name: pgadmin-delivery
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks: [ delivery-net ]
+    depends_on:
+      - postgres-delivery
+
+  seller-ms:
+    image: boinha/seller-ms:latest
+    pull_policy: never
+    container_name: seller-ms
+    environment:
+      SERVER_PORT: 8082
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-delivery:5432/seller_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 20071950
+
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 29092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8082:8082"
+    networks: [ delivery-net ]
+    depends_on:
+      postgres-delivery:
+        condition: service_healthy
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks: [ delivery-net ]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5

@@ -1,0 +1,9 @@
+# Força LF em scripts e arquivos de configuração executados no Linux
+gradlew text eol=lf
+*.sh text eol=lf
+*.gradle text eol=lf
+Jenkinsfile text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+# Mantém CRLF para scripts nativos do Windows
+*.bat text eol=crlf

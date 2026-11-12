@@ -1,0 +1,10 @@
+git
+github
+workflow-aggregator
+pipeline-stage-view
+sonar
+junit
+jacoco
+credentials-binding
+kubernetes-cli
+timestamper

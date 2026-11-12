@@ -1,0 +1,80 @@
+server:
+  servlet:
+    context-path: /customer-app
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:customer_db}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:20071950}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    fail-on-missing-locations: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_HOST:localhost}:${KAFKA_PORT:9092}
+    # Configurações do KafkaAdmin (gerenciador de tópicos)
+    admin:
+      # Habilita o Spring Admin a criar/atualizar tópicos definidos como Beans
+      auto-create: true
+      # Define o tempo de espera para operações de administração
+      close-timeout: 10s
+      # Controla se a aplicação deve falhar caso o Kafka esteja indisponível no startup
+      fail-fast: false
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all # Garante persistência das mensagens
+      retries: 3
+      properties:
+        # Garante que o tipo da classe seja enviado no cabeçalho da mensagem
+        spring.json.add.type.headers: true
+        spring.json.type.mapping: >-  
+          orderCreated: br.edu.catolica.customer+ms.dto.OrderCreateadEventDTO
+
+    consumer:
+      group-id: customer-ms
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        # O evento é publicado por outro serviço (seller-service), então ignoramos
+        # o header de tipo dele e desserializamos direto para o nosso próprio contrato
+        spring.json.use.type.headers: true
+        spring.json.value.default.type: br.edu.catolica.customer_ms.dto.OrderResponseDTO
+        spring.json.trusted.packages: br.edu.catolica.customer_ms
+
+        spring.json.type.mapping: >-
+          orderResponse: br.edu.catolica.customer_ms.dto.OrderResponseDTO,
+          orderStatusUpdated: br.edu.catolica.customer_ms.dto.OrderStatusUpdateDTO
+
+        # Se o producer enviar um JSON inválido, este deserializer impede que o consumidor
+        # entre em um loop infinito de falhas de leitura.
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+
+seller-services:
+  menu:
+    url: http://${SELLER_SERVICE_HOST:localhost}:${SELLER_SERVICE_PORT:8082}/seller-app/api/v1/seller/products
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true

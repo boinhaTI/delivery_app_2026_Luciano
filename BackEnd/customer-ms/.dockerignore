@@ -1,0 +1,13 @@
+# O jar é gerado dentro da imagem (multi-stage), então nada de build local entra no contexto
+build/
+bin/
+.gradle/
+.idea/
+*.iml
+k8s/
+scritps_util/
+*.pdf
+*.sh
+Jenkinsfile
+Dockerfile
+docker-compose.yml

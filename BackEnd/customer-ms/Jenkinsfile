@@ -1,0 +1,92 @@
+pipeline {
+    agent any
+
+    options {
+        skipDefaultCheckout(true)
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    triggers {
+        pollSCM('* * * * *')
+    }
+
+    environment {
+        APP_DIR      = 'backend/customer-ms'
+        IMAGE_NAME   = 'boinha/customer-ms'
+        KIND_CLUSTER = 'sb-k8s-series'
+        K8S_NS       = 'delivery'
+        DEPLOYMENT   = 'customer-ms'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                }
+                echo "Imagem que será gerada: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+            }
+        }
+
+        stage('Validação Docker | Kind | Kubectl') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-kind', variable: 'KUBECONFIG')]) {
+                    sh '''
+                        docker version --format 'Docker {{.Server.Version}}'
+                        kind get clusters | grep -qx "$KIND_CLUSTER"
+                        kubectl get namespace "$K8S_NS"
+                        kubectl -n "$K8S_NS" get secret postgres-credentials
+                    '''
+                }
+            }
+        }
+
+        stage('Build da imagem') {
+            steps {
+                dir(env.APP_DIR) {
+                    sh 'docker build -t "$IMAGE_NAME:$IMAGE_TAG" .'
+                }
+            }
+        }
+
+        stage('Carregar no kind') {
+            steps {
+                sh 'kind load docker-image "$IMAGE_NAME:$IMAGE_TAG" --name "$KIND_CLUSTER"'
+            }
+        }
+
+        stage('Deploy no k8s') {
+            steps {
+                dir(env.APP_DIR) {
+                    withCredentials([file(credentialsId: 'kubeconfig-kind', variable: 'KUBECONFIG')]) {
+                        sh '''
+                            sed "s|__TAG__|$IMAGE_TAG|" k8s/deployment.yml | kubectl apply -f -
+                            kubectl apply -f k8s/service.yml
+                            kubectl -n "$K8S_NS" rollout status deployment/"$DEPLOYMENT" --timeout=180s
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "customer-ms ${env.IMAGE_TAG} publicado no namespace ${env.K8S_NS}"
+        }
+        failure {
+            withCredentials([file(credentialsId: 'kubeconfig-kind', variable: 'KUBECONFIG')]) {
+                sh '''
+                    kubectl -n "$K8S_NS" get pods -l app=customer-ms -o wide || true
+                    kubectl -n "$K8S_NS" describe deployment "$DEPLOYMENT" | tail -40 || true
+                    kubectl -n "$K8S_NS" logs deployment/"$DEPLOYMENT" --tail=100 || true
+                '''
+            }
+        }
+    }
+}
