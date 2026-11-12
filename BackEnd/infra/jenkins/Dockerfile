@@ -17,7 +17,7 @@ RUN curl -fsSLo /usr/local/bin/kubectl \
  && chmod +x /usr/local/bin/kubectl
 
 # kind: use a MESMA versão mostrada por "kind version" no host
-ARG KIND_VERSION=v0.31.0
+ARG KIND_VERSION=v0.33.0
 RUN curl -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64" \
  && chmod +x /usr/local/bin/kind
 
