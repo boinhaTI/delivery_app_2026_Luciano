@@ -14,7 +14,7 @@ pipeline {
     }
 
     environment {
-        APP_DIR      = 'backend/customer-ms'
+        APP_DIR      = 'BackEnd/customer-ms'
         IMAGE_NAME   = 'boinha/customer-ms'
         KIND_CLUSTER = 'sb-k8s-series'
         K8S_NS       = 'delivery'
