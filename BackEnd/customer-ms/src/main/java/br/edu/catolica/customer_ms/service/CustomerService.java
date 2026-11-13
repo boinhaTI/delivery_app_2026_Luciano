@@ -25,6 +25,7 @@ public class CustomerService {
         try{
             Customer customer = customerMapper.dtoToEntity(customerDTO);
             customerRepository.save(customer);
+            System.out.println("Teste");
         } catch (Exception e) {
             log.error("m=save, error to try save customer with cpf = {} ", customerDTO.cpf());
             throw new CustomerException(e.getMessage());
